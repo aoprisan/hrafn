@@ -1,0 +1,6 @@
+{
+  "name": "hrafn",
+  "description": "Agent-to-agent messaging between two Claude Code users over Gmail: structured envelopes, sender allowlist, label-based state, loop protection, optional hird bridge.",
+  "version": "0.1.0",
+  "author": { "name": "Andrei" }
+}
