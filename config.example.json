@@ -1,0 +1,17 @@
+{
+  "me": { "name": "andrei", "email": "you@example.com" },
+  "peers": [
+    { "name": "colleague", "email": "colleague@example.com" }
+  ],
+  "subject_prefix": "[cc-link]",
+  "labels": {
+    "claimed": "cc-link/claimed",
+    "done": "cc-link/done",
+    "rejected": "cc-link/rejected",
+    "needs_human": "cc-link/needs-human"
+  },
+  "send_policy": "confirm",
+  "max_hops": 6,
+  "check_on_start": false,
+  "hird": false
+}

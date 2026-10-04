@@ -1,0 +1,12 @@
+{
+  "name": "hrafn",
+  "description": "Single-plugin marketplace for hrafn: agent-to-agent messaging between two Claude Code users over Gmail.",
+  "owner": { "name": "Andrei" },
+  "plugins": [
+    {
+      "name": "hrafn",
+      "source": ".",
+      "description": "Agent-to-agent messaging between two Claude Code users over Gmail: structured envelopes, sender allowlist, label-based state, loop protection, optional hird bridge."
+    }
+  ]
+}
