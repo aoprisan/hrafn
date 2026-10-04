@@ -79,7 +79,7 @@ class EnvelopeTestCase(unittest.TestCase):
         self.assertTrue(out["ok"])
         return out
 
-    def parse(self, config, sender, body, subject=None):
+    def parse(self, config, sender, body, subject="[cc-link] question: x"):
         args = ["parse", "--sender-email", sender]
         if subject is not None:
             args += ["--subject", subject]
@@ -187,6 +187,37 @@ class TrustGateTests(EnvelopeTestCase):
             self.parse(self.bob, ALICE_EMAIL, sent["body"], "question: hi"), "prefix"
         )
 
+    def test_subject_is_required(self):
+        sent = self.new_ok(self.alice, "--intent", "question", "--to", "bob", "--title", "hi")
+        p = subprocess.run(
+            [sys.executable, SCRIPT, "parse", "--sender-email", ALICE_EMAIL],
+            input=sent["body"], capture_output=True, text=True,
+            env=dict(os.environ, HRAFN_CONFIG=self.bob),
+        )
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("--subject", p.stderr)
+
+    def test_blockquote_in_body_is_kept(self):
+        body = "See the log:\n> error: serde mismatch\n> at line 3\n\nAny idea?"
+        sent = self.new_ok(
+            self.alice, "--intent", "question", "--to", "bob", "--title", "hi", body=body
+        )
+        code, got = self.parse(self.bob, ALICE_EMAIL, sent["body"])
+        self.assertEqual(code, 0, got)
+        self.assertEqual(got["body"], body)
+
+    def test_quoted_envelope_without_attribution_is_cut_from_body(self):
+        old = self.new_ok(self.bob, "--intent", "question", "--to", "alice", "--title", "q")
+        new = self.new_ok(
+            self.alice, "--intent", "answer", "--to", "bob", "--title", "q",
+            "--re", old["id"], "--hop", "1", body="Answer here.",
+        )
+        quoted = "\n".join("> " + l for l in old["body"].split("\n"))
+        code, got = self.parse(self.bob, ALICE_EMAIL, new["body"] + "\n" + quoted)
+        self.assertEqual(code, 0, got)
+        self.assertEqual(got["body"], "Answer here.")
+        self.assertEqual(got["envelope"]["id"], new["id"])
+
     def test_quoted_history_after_envelope_is_cut_from_body(self):
         sent = self.new_ok(
             self.alice, "--intent", "question", "--to", "bob", "--title", "hi",
@@ -292,6 +323,31 @@ class NewCommandTests(EnvelopeTestCase):
                      "--repo", "a\nto: mallory"),
             "single line",
         )
+
+    def test_negative_hop_rejected(self):
+        self.assert_rejected(
+            self.new(self.alice, "--intent", "question", "--to", "bob", "--title", "x",
+                     "--hop", "-1"),
+            "--hop must be 0 or more",
+        )
+
+    def test_invalid_names_in_config_rejected(self):
+        cases = {
+            "me uppercase": make_config("Andrei", ALICE_EMAIL, [("bob", BOB_EMAIL)]),
+            "me with dot": make_config("mihai.p", ALICE_EMAIL, [("bob", BOB_EMAIL)]),
+            "peer too long": make_config("alice", ALICE_EMAIL, [("b" * 33, BOB_EMAIL)]),
+            "peer empty": make_config("alice", ALICE_EMAIL, [("", BOB_EMAIL)]),
+        }
+        for label, cfg in cases.items():
+            with self.subTest(label):
+                path = self.write_config("bad.json", cfg)
+                self.assert_rejected(
+                    self.new(path, "--intent", "question", "--to", "bob", "--title", "x"),
+                    "must be 1-32 characters",
+                )
+                self.assert_rejected(
+                    self.parse(path, BOB_EMAIL, "irrelevant"), "must be 1-32 characters"
+                )
 
     def test_missing_config(self):
         code, out = self.run_script(

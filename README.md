@@ -48,6 +48,8 @@ Then create the config:
 Each side lists itself under `me` and the other under `peers`. The `name`
 values must mirror each other: what you call yourself is what your colleague
 lists you as.
+Names are 1-32 characters of lowercase `a-z`, `0-9`, `_` or `-` (they go
+into message ids); `envelope.py` refuses a config that breaks this.
 
 Requirements: a Gmail connector in Claude Code with search, read, reply/send
 and label tools; Python 3.

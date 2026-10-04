@@ -21,7 +21,7 @@ Run the Receiving flow up to and including the `claimed` label. Then, for
    - metadata: `peer`, envelope `id`, Gmail thread id, `repo`, `ref`, `intent`
    - status: whatever hird uses for "waiting for approval" when
      `needs_user_approval` is true, otherwise ready
-2. Put the hird task id in your `ack`: `envelope.py new --intent ack --re <id> --task <hird id>`.
+2. Put the hird task id in your `ack` (envelope tool as in SKILL.md): `envelope.py new --intent ack --re <id> --task <hird id>`.
    Only send that ack if the original `expects` is `ack` or `reply`.
 
 Check for an existing task carrying the same envelope `id` before creating one.

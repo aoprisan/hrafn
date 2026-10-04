@@ -5,7 +5,7 @@
                     [--re PARENT_ID] [--task ID] [--expects reply|ack|none] [--hop N] < body.md
       -> JSON {"subject": ..., "body": ..., "id": ...}
 
-  envelope.py parse --sender-email addr@x [--subject "..."] < raw_email_body
+  envelope.py parse --sender-email addr@x --subject "..." < raw_email_body
       -> JSON {"ok": true, "envelope": {...}, "body": "..."}   exit 0
       -> JSON {"ok": false, "error": "..."}                     exit 1
 
@@ -25,7 +25,12 @@ END = "-----END CC-LINK-----"
 INTENTS = {"question", "request", "handoff", "answer", "ack", "decline"}
 EXPECTS = {"reply", "ack", "none"}
 REQUIRED = ("id", "from", "to", "intent", "expects", "hop")
+NAME_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
 ID_RE = re.compile(r"^[a-z0-9_-]{1,32}-\d{8}T\d{6}Z-[0-9a-f]{4}$")
+
+
+def is_quoted(line):
+    return line.lstrip().startswith(">")
 
 
 def load_config():
@@ -34,11 +39,21 @@ def load_config():
     )
     try:
         with open(path) as f:
-            return json.load(f)
+            cfg = json.load(f)
     except FileNotFoundError:
         fail(f"config not found at {path}; copy config.example.json there and fill it in")
     except json.JSONDecodeError as e:
         fail(f"config at {path} is not valid JSON: {e}")
+    # Names end up in envelope ids, which the other side checks against ID_RE.
+    # A name that cannot form a valid id would make every message bounce.
+    names = [cfg.get("me", {}).get("name")] + [p.get("name") for p in cfg.get("peers", [])]
+    for n in names:
+        if not isinstance(n, str) or not NAME_RE.match(n):
+            fail(
+                f"config at {path}: name {n!r} must be 1-32 characters of "
+                "lowercase a-z, 0-9, '_' or '-'"
+            )
+    return cfg
 
 
 def fail(msg):
@@ -63,6 +78,8 @@ def cmd_new(a):
     expects = a.expects or {"question": "reply", "request": "reply", "handoff": "ack"}.get(
         a.intent, "none"
     )
+    if a.hop < 0:
+        fail("--hop must be 0 or more")
     if a.intent == "ack" and expects != "none":
         fail("an ack never expects anything back (this is what stops ping-pong)")
     body = sys.stdin.read().strip()
@@ -99,7 +116,7 @@ def cmd_parse(a):
     cfg = load_config()
     raw = sys.stdin.read().replace("\r\n", "\n")
     prefix = cfg.get("subject_prefix", "[cc-link]")
-    if a.subject is not None and prefix not in a.subject:
+    if prefix not in a.subject:
         fail(f"subject does not carry the {prefix} prefix")
 
     sender = norm_email(a.sender_email)
@@ -109,16 +126,22 @@ def cmd_parse(a):
 
     # Take the first envelope in the un-quoted part of the mail. Quoted history
     # ("> ..." lines) holds earlier messages in the thread and is ignored.
-    lines = [l for l in raw.split("\n") if not l.lstrip().startswith(">")]
+    raw_lines = raw.split("\n")
     try:
-        start = next(i for i, l in enumerate(lines) if l.strip() == BEGIN)
-        end = next(i for i, l in enumerate(lines) if i > start and l.strip() == END)
+        start = next(
+            i for i, l in enumerate(raw_lines) if not is_quoted(l) and l.strip() == BEGIN
+        )
+        end = next(
+            i
+            for i, l in enumerate(raw_lines)
+            if i > start and not is_quoted(l) and l.strip() == END
+        )
     except StopIteration:
         fail("no complete envelope found in the un-quoted part of the message")
 
     env = {}
-    for l in lines[start + 1 : end]:
-        if not l.strip():
+    for l in raw_lines[start + 1 : end]:
+        if is_quoted(l) or not l.strip():
             continue
         if ":" not in l:
             fail(f"malformed envelope line: {l!r}")
@@ -152,10 +175,16 @@ def cmd_parse(a):
     if env["intent"] in ("answer", "ack", "decline") and not env.get("re"):
         fail(f"intent '{env['intent']}' without a 're' field")
 
-    # Everything after the envelope, cut at the start of quoted history.
+    # Everything after the envelope, cut at the start of quoted history: an
+    # "On ... wrote:" line, or a quoted block that carries an earlier envelope.
+    # Other "> " lines are ordinary blockquotes and stay in the body.
     rest = []
-    for l in lines[end + 1 :]:
+    for l in raw_lines[end + 1 :]:
         if re.match(r"^On .{5,120} wrote:\s*$", l.strip()):
+            break
+        if is_quoted(l) and l.lstrip(" >").strip() == BEGIN:
+            while rest and is_quoted(rest[-1]):
+                rest.pop()
             break
         rest.append(l)
     body = "\n".join(rest).strip()
@@ -195,7 +224,7 @@ def main():
 
     q = sub.add_parser("parse")
     q.add_argument("--sender-email", required=True)
-    q.add_argument("--subject")
+    q.add_argument("--subject", required=True)
     q.set_defaults(fn=cmd_parse)
 
     a = p.parse_args()
